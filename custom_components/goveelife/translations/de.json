@@ -36,5 +36,17 @@
                 "description": "Konfiguration"
             }
         }
+    },
+    "services": {
+        "set_segment_colors": {
+            "name": "Segment-Farben einstellen",
+            "description": "Farben für einzelne Segmente einer Leuchte einstellen",
+            "fields": {
+                "segments": {
+                    "name": "Segmente",
+                    "description": "Liste der RGB-Farben für jedes Segment (Format [[R,G,B], [R,G,B], ...])"
+                }
+            }
+        }
     }
 }

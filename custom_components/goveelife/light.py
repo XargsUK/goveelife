@@ -15,6 +15,7 @@ from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP_KELVIN,
     ATTR_RGB_COLOR,
+    ATTR_EFFECT,
     ColorMode,
     LightEntity,
 )
@@ -71,6 +72,8 @@ class GoveeLifeLight(LightEntity, GoveeLifePlatformEntity):
     _state_mapping = {}
     _state_mapping_set = {}
     _attr_supported_color_modes = set()
+    _attr_effect_list = None
+    _scene_mapping = {}
 
     def _init_platform_specific(self, **kwargs):
         """Platform specific init actions"""
@@ -99,14 +102,20 @@ class GoveeLifeLight(LightEntity, GoveeLifePlatformEntity):
                 self._attr_supported_color_modes.add(ColorMode.COLOR_TEMP)
                 self._attr_min_color_temp_kelvin = cap['parameters']['range']['min']
                 self._attr_max_color_temp_kelvin = cap['parameters']['range']['max']
+            elif cap['type'] == 'devices.capabilities.dynamic_scene':
+                # Add scenes as effects
+                scenes = cap['parameters'].get('scenes', [])
+                self._attr_effect_list = [scene['name'] for scene in scenes]
+                self._scene_mapping = {
+                    scene['name']: scene['value'] for scene in scenes
+                }
+                _LOGGER.debug("%s - %s: Added %d scenes as effects", self._api_id, self._identifier, len(scenes))
             elif cap['type'] == 'devices.capabilities.toggle' and cap['instance'] == 'gradientToggle':
                 pass  # implemented as switch entity type
             elif cap['type'] == 'devices.capabilities.segment_color_setting':
-                pass  # TO-BE-DONE - implement as service?
-            elif cap['type'] == 'devices.capabilities.dynamic_scene':
-                pass  # TO-BE-DONE: implement as select entity type
+                pass  # implemented as service
             elif cap['type'] == 'devices.capabilities.music_setting':
-                pass  # TO-BE-DONE: implement as select entity type
+                pass  # Music modes are handled separately
             elif cap['type'] == 'devices.capabilities.dynamic_setting':
                 pass  # TO-BE-DONE: implement as select ? unsure about setting effect
             else:
@@ -158,12 +167,43 @@ class GoveeLifeLight(LightEntity, GoveeLifePlatformEntity):
         value = GoveeAPI_GetCachedStateValue(self.hass, self._entry_id, self._device_cfg.get('device'), 'devices.capabilities.color_setting', 'colorRgb')
         return self._getRGBfromI(value)
 
+    @property
+    def effect(self) -> str | None:
+        """Return the current effect."""
+        value = GoveeAPI_GetCachedStateValue(
+            self.hass,
+            self._entry_id,
+            self._device_cfg.get('device'),
+            'devices.capabilities.dynamic_scene',
+            'scene'
+        )
+        return next(
+            (name for name, val in self._scene_mapping.items() if val == value),
+            None
+        )
+
+    @property
+    def effect_list(self) -> list[str] | None:
+        """Return the list of supported effects."""
+        return self._attr_effect_list
+
     async def async_turn_on(self, **kwargs) -> None:
         """Async: Turn entity on"""
         try:
             _LOGGER.debug("%s - %s: async_turn_on", self._api_id, self._identifier)
             _LOGGER.debug("%s - %s: async_turn_on: kwargs = %s", self._api_id, self._identifier, kwargs)
             
+            if ATTR_EFFECT in kwargs:
+                scene_value = self._scene_mapping.get(kwargs[ATTR_EFFECT])
+                if scene_value is not None:
+                    state_capability = {
+                        "type": "devices.capabilities.dynamic_scene",
+                        "instance": "scene",
+                        "value": scene_value
+                    }
+                    if await async_GoveeAPI_ControlDevice(self.hass, self._entry_id, self._device_cfg, state_capability):
+                        self.async_write_ha_state()
+
             if ATTR_BRIGHTNESS in kwargs:
                 state_capability = {
                     "type": "devices.capabilities.range",

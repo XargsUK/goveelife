@@ -58,3 +58,36 @@ async def async_service_SetPollInterval(hass: HomeAssistant, call: ServiceCall) 
     except Exception as e:
         _LOGGER.error("%s - async_service_SetPollInterval: %s failed: %s (%s.%s)", DOMAIN, call, str(e), e.__class__.__module__, type(e).__name__)
 
+
+async def async_service_SetSegmentColors(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Handle setting segment colors."""
+    try:
+        entity_id = call.target.get("entity_id")[0]
+        entity = hass.data[DOMAIN].get(entity_id)
+        if not entity:
+            _LOGGER.error("Entity %s not found", entity_id)
+            return
+
+        segments = call.data.get("segments", [])
+        
+        state_capability = {
+            "type": "devices.capabilities.segment_color_setting",
+            "instance": "segmentColor",
+            "value": segments
+        }
+        
+        await async_GoveeAPI_ControlDevice(
+            hass,
+            entity._entry_id,
+            entity._device_cfg,
+            state_capability
+        )
+
+    except Exception as e:
+        _LOGGER.error("Failed to set segment colors: %s", str(e))
+
+# Register the new service
+async def async_setup_services(hass: HomeAssistant) -> None:
+    """Set up custom services."""
+    await async_registerService(hass, "set_segment_colors", async_service_SetSegmentColors)
+

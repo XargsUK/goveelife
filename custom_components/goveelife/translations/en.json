@@ -36,5 +36,17 @@
                 "description": "Configuration"
             }
         } 
+    },
+    "services": {
+        "set_segment_colors": {
+            "name": "Set Segment Colors",
+            "description": "Set colors for individual segments of a light",
+            "fields": {
+                "segments": {
+                    "name": "Segments",
+                    "description": "List of RGB colors for each segment (format [[R,G,B], [R,G,B], ...])"
+                }
+            }
+        }
     }
 }

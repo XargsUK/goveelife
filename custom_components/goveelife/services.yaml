@@ -14,3 +14,19 @@ set_poll_interval:
       name: ScanInterval
       description: Poll scan intervall in seconds
       example: 120
+
+set_segment_colors:
+  name: Set Segment Colors
+  description: Set colors for individual segments of a light
+  target:
+    entity:
+      integration: goveelife
+      domain: light
+  fields:
+    segments:
+      name: Segments
+      description: List of RGB colors for each segment (format [[R,G,B], [R,G,B], ...])
+      example: "[[255,0,0], [0,255,0], [0,0,255]]"
+      required: true
+      selector:
+        object:
