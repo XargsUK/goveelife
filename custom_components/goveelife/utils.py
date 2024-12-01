@@ -27,7 +27,7 @@ from homeassistant.const import (
 from .const import (
     DOMAIN,
     CONF_API_COUNT,
-    CLOUD_API_URL_OPENAPI,
+    CLOUD_API_URL_DEVELOPER,
     CLOUD_API_HEADER_KEY,
     STATE_DEBUG_FILENAME,
 )
@@ -99,7 +99,7 @@ async def async_GoveeAPI_GETRequest(hass: HomeAssistant, entry_id: str, path: st
         #_LOGGER.debug("%s - async_GoveeAPI_GETRequest: perpare parameters for GET request"
         headers={"Content-Type":"application/json",CLOUD_API_HEADER_KEY: str(entry_data[CONF_PARAMS].get(CONF_API_KEY, None))}
         timeout=entry_data[CONF_PARAMS].get(CONF_TIMEOUT, None)
-        url=CLOUD_API_URL_OPENAPI + '/' + path.strip("/")
+        url=CLOUD_API_URL_DEVELOPER + '/' + path.strip("/")
 
         #_LOGGER.debug("%s - async_GoveeAPI_GETRequest: extecute GET request"
         await async_GooveAPI_CountRequests(hass, entry_id)
@@ -133,7 +133,7 @@ async def async_GoveeAPI_POSTRequest(hass: HomeAssistant, entry_id: str, path: s
         data = re.sub('<dynamic_uuid>', str(uuid.uuid4()), data)
         _LOGGER.debug("%s - async_GoveeAPI_POSTRequest: data = %s", entry_id, data)
         data = json.loads(data)
-        url=CLOUD_API_URL_OPENAPI + '/' + path.strip("/")
+        url=CLOUD_API_URL_DEVELOPER + '/' + path.strip("/")
 
         #_LOGGER.debug("%s - async_GoveeAPI_POSTRequest: extecute POST request"
         await async_GooveAPI_CountRequests(hass, entry_id)
@@ -203,30 +203,22 @@ async def async_GoveeAPI_GetDeviceState(hass: HomeAssistant, entry_id: str, devi
 async def async_GoveeAPI_ControlDevice(hass: HomeAssistant, entry_id: str, device_cfg, state_capability, return_status_code=False) -> None:
     """Asnyc: Trigger device action via GooveAPI"""
     try:
-        #_LOGGER.debug("%s - async_GoveeAPI_ControlDevice: preparing values", entry_id)       
         entry_data=hass.data[DOMAIN][entry_id]
-        state_capability_json = json.dumps(state_capability)
-        json_str='{"requestId": "<dynamic_uuid>","payload": {"sku": "' + str(device_cfg.get('sku')) + '","device": "' + str(device_cfg.get('device')) + '","capability": ' + state_capability_json +'}}'
-        _LOGGER.debug("%s - async_GoveeAPI_ControlDevice: json_str = %s", entry_id, json_str) 
-        r = None
-    except Exception as e:
-        _LOGGER.error("%s - async_GoveeAPI_ControlDevice: preparing values failed: %s (%s.%s)", entry_id, str(e), e.__class__.__module__, type(e).__name__)
-        return False     
-
-    try:
-        debug_file=os.path.dirname(os.path.realpath(__file__))+STATE_DEBUG_FILENAME
-        if os.path.isfile(debug_file):
-            _LOGGER.debug("%s - async_GoveeAPI_ControlDevice: create debug reply", entry_id)
-            state_capability['state'] = { "status" : "success" }
-            state_capability_json = json.dumps(state_capability)
-            r = json.loads('{"requestId": "debug-dummy", "msg": "success", "code": 200, "capability": '+ state_capability_json + '}')
-    except Exception as e:
-        _LOGGER.error("%s - async_GoveeAPI_GetDeviceState: debug reply failed: %s (%s.%s)", entry_id, str(e), e.__class__.__module__, type(e).__name__)
-        return False
-
-    try:
+        
+        # Convert our internal capability format to Govee's API format
+        cmd = {
+            "name": state_capability['instance'],
+            "value": state_capability['value']
+        }
+        
+        json_str = json.dumps({
+            "device": device_cfg.get('device'),
+            "model": device_cfg.get('sku'),
+            "cmd": cmd
+        })
+        
         if r is None:
-            r = await async_GoveeAPI_POSTRequest(hass,entry_id, 'device/control', json_str, return_status_code)
+            r = await async_GoveeAPI_POSTRequest(hass, entry_id, 'devices/control', json_str, return_status_code)
         _LOGGER.debug("%s - async_GoveeAPI_ControlDevice: r = %s", entry_id, r)
         if isinstance(r, int) and return_status_code == True:
             return r

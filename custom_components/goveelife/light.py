@@ -18,6 +18,7 @@ from homeassistant.components.light import (
     ATTR_EFFECT,
     ColorMode,
     LightEntity,
+    SUPPORT_EFFECT,
 )
 from homeassistant.const import (
     CONF_DEVICES,
@@ -79,47 +80,43 @@ class GoveeLifeLight(LightEntity, GoveeLifePlatformEntity):
         """Platform specific init actions"""
         _LOGGER.debug("%s - %s: _init_platform_specific", self._api_id, self._identifier)
         capabilities = self._device_cfg.get('capabilities', [])
+        
+        # Initialize effects list and mapping at start
+        self._attr_effect_list = []
+        self._scene_mapping = {}
+        self._attr_supported_features = 0  # Initialize supported features
 
-        _LOGGER.debug("%s - %s: _init_platform_specific: processing devices request capabilities", self._api_id, self._identifier)
         for cap in capabilities:
             if cap['type'] == 'devices.capabilities.on_off':
                 self._attr_supported_color_modes.add(ColorMode.ONOFF)
-                for option in cap['parameters']['options']:
-                    if option['name'] == 'on':
-                        self._state_mapping[option['value']] = STATE_ON
-                        self._state_mapping_set[STATE_ON] = option['value']
-                    elif option['name'] == 'off':
-                        self._state_mapping[option['value']] = STATE_OFF
-                        self._state_mapping_set[STATE_OFF] = option['value']
-                    else:
-                        _LOGGER.warning("%s - %s: _init_platform_specific: unhandled cap option: %s -> %s", self._api_id, self._identifier, cap['type'], option)
             elif cap['type'] == 'devices.capabilities.range' and cap['instance'] == 'brightness':
                 self._attr_supported_color_modes.add(ColorMode.BRIGHTNESS)
-                self._brightness_scale = (cap['parameters']['range']['min'], cap['parameters']['range']['max'])
             elif cap['type'] == 'devices.capabilities.color_setting' and cap['instance'] == 'colorRgb':
                 self._attr_supported_color_modes.add(ColorMode.RGB)
             elif cap['type'] == 'devices.capabilities.color_setting' and cap['instance'] == 'colorTemperatureK':
                 self._attr_supported_color_modes.add(ColorMode.COLOR_TEMP)
-                self._attr_min_color_temp_kelvin = cap['parameters']['range']['min']
-                self._attr_max_color_temp_kelvin = cap['parameters']['range']['max']
             elif cap['type'] == 'devices.capabilities.dynamic_scene':
-                # Add scenes as effects
-                scenes = cap['parameters'].get('scenes', [])
-                self._attr_effect_list = [scene['name'] for scene in scenes]
-                self._scene_mapping = {
-                    scene['name']: scene['value'] for scene in scenes
-                }
-                _LOGGER.debug("%s - %s: Added %d scenes as effects", self._api_id, self._identifier, len(scenes))
-            elif cap['type'] == 'devices.capabilities.toggle' and cap['instance'] == 'gradientToggle':
-                pass  # implemented as switch entity type
-            elif cap['type'] == 'devices.capabilities.segment_color_setting':
-                pass  # implemented as service
-            elif cap['type'] == 'devices.capabilities.music_setting':
-                pass  # Music modes are handled separately
-            elif cap['type'] == 'devices.capabilities.dynamic_setting':
-                pass  # TO-BE-DONE: implement as select ? unsure about setting effect
-            else:
-                _LOGGER.debug("%s - %s: _init_platform_specific: cap unhandled: %s", self._api_id, self._identifier, cap)
+                self._attr_supported_features |= SUPPORT_EFFECT  # Add support for effects
+                _LOGGER.debug("%s - %s: Processing dynamic scene capability: %s", 
+                             self._api_id, self._identifier, cap)
+                
+                options = cap['parameters'].get('options', [])
+                scene_instance = cap['instance']
+                
+                _LOGGER.debug("%s - %s: Found %d options for scene type %s", 
+                             self._api_id, self._identifier, len(options), scene_instance)
+                
+                for option in options:
+                    if 'name' in option and 'value' in option:
+                        scene_name = f"{scene_instance}_{option['name']}"
+                        self._attr_effect_list.append(scene_name)
+                        self._scene_mapping[scene_name] = {
+                            'type': 'devices.capabilities.dynamic_scene',
+                            'instance': scene_instance,
+                            'value': option['value']
+                        }
+                        _LOGGER.debug("%s - %s: Added scene: %s -> %s", 
+                                    self._api_id, self._identifier, scene_name, option['value'])
 
     def _getRGBfromI(self, RGBint):
         blue = RGBint & 255
@@ -170,22 +167,42 @@ class GoveeLifeLight(LightEntity, GoveeLifePlatformEntity):
     @property
     def effect(self) -> str | None:
         """Return the current effect."""
-        value = GoveeAPI_GetCachedStateValue(
-            self.hass,
-            self._entry_id,
-            self._device_cfg.get('device'),
-            'devices.capabilities.dynamic_scene',
-            'scene'
-        )
-        return next(
-            (name for name, val in self._scene_mapping.items() if val == value),
-            None
-        )
+        if not self._attr_effect_list:
+            _LOGGER.debug("%s - %s: No effects available", self._api_id, self._identifier)
+            return None
+        
+        # We need to check each scene type (lightScene, diyScene, snapshot)
+        for scene_type in ['lightScene', 'diyScene', 'snapshot']:
+            value = GoveeAPI_GetCachedStateValue(
+                self.hass,
+                self._entry_id, 
+                self._device_cfg.get('device'),
+                'devices.capabilities.dynamic_scene',
+                scene_type
+            )
+            
+            _LOGGER.debug("%s - %s: Checking scene type %s, value: %s", 
+                         self._api_id, self._identifier, scene_type, value)
+            
+            if value is not None:
+                for scene_name, scene_data in self._scene_mapping.items():
+                    if scene_data['instance'] == scene_type and scene_data['value'] == value:
+                        _LOGGER.debug("%s - %s: Found active scene: %s", 
+                                    self._api_id, self._identifier, scene_name)
+                        return scene_name
+        
+        return None
 
     @property
     def effect_list(self) -> list[str] | None:
         """Return the list of supported effects."""
+        _LOGGER.debug("%s - %s: Returning effect list: %s", self._api_id, self._identifier, self._attr_effect_list)
         return self._attr_effect_list
+
+    @property
+    def supported_features(self) -> int:
+        """Flag supported features."""
+        return self._attr_supported_features
 
     async def async_turn_on(self, **kwargs) -> None:
         """Async: Turn entity on"""
@@ -194,13 +211,15 @@ class GoveeLifeLight(LightEntity, GoveeLifePlatformEntity):
             _LOGGER.debug("%s - %s: async_turn_on: kwargs = %s", self._api_id, self._identifier, kwargs)
             
             if ATTR_EFFECT in kwargs:
-                scene_value = self._scene_mapping.get(kwargs[ATTR_EFFECT])
-                if scene_value is not None:
+                scene_data = self._scene_mapping.get(kwargs[ATTR_EFFECT])
+                if scene_data is not None:
                     state_capability = {
                         "type": "devices.capabilities.dynamic_scene",
-                        "instance": "scene",
-                        "value": scene_value
+                        "instance": scene_data['instance'],
+                        "value": scene_data['value']
                     }
+                    _LOGGER.debug("%s - %s: Setting scene: %s", 
+                                 self._api_id, self._identifier, state_capability)
                     if await async_GoveeAPI_ControlDevice(self.hass, self._entry_id, self._device_cfg, state_capability):
                         self.async_write_ha_state()
 

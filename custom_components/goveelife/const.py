@@ -18,6 +18,6 @@ CONF_COORDINATORS: Final = 'coordinators'
 CONF_API_COUNT: Final = 'api_count'
 CONF_ENTRY_ID: Final = 'entry_id'
 
-CLOUD_API_URL_DEVELOPER: Final = 'https://developer-api.govee.com/v1/appliance/devices/'
+CLOUD_API_URL_DEVELOPER: Final = 'https://developer-api.govee.com/v1'
 CLOUD_API_URL_OPENAPI: Final = 'https://openapi.api.govee.com/router/api/v1'
 CLOUD_API_HEADER_KEY: Final = 'Govee-API-Key'
